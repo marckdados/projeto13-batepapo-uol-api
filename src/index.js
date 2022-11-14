@@ -21,7 +21,7 @@ const userSchema = joi.object({
 const messageSchema = joi.object({
   to: joi.string().required(),
   text: joi.string().required(),
-  type: joi.string().valid("message").required(),
+  type: joi.string().valid("message", "private_message").required(),
   from: joi.string().required(),
 });
 
@@ -42,7 +42,7 @@ app.post("/participants", async (req, res) => {
   const user = req.body;
   const { name } = user;
   const { error } = userSchema.validate(user, { abortEarly: false });
-
+  console.log(name);
   try {
     const existsParticipants = await db.collection("participants").findOne({
       name: user.name,
@@ -57,7 +57,7 @@ app.post("/participants", async (req, res) => {
       return res.status(422).send(erros);
     }
 
-    await participantsCollection.insertOne({ ...user, lastStatus: Date.now() });
+    await participantsCollection.insertOne({ name, lastStatus: Date.now() });
     await messageCollection.insertOne({
       from: name,
       to: "Todos",
@@ -73,7 +73,7 @@ app.post("/participants", async (req, res) => {
 
 app.get("/participants", async (req, res) => {
   try {
-    const participants = await messageCollection.find().toArray();
+    const participants = await participantsCollection.find().toArray();
     res.send(participants);
   } catch (error) {
     console.log(error);
@@ -99,7 +99,7 @@ app.post("/messages", async (req, res) => {
     abortEarly: false,
   });
   if (error) {
-    return res.status(400).send(error.details.map((detail) => detail.message));
+    return res.status(422).send(error.details.map((detail) => detail.message));
   }
 
   try {
@@ -107,6 +107,8 @@ app.post("/messages", async (req, res) => {
       ...messageObject,
       time: now.format("HH:MM:ss"),
     });
+    console.log(now.format("HH:MM:ss"));
+
     res.sendStatus(201);
   } catch (error) {
     console.log(error);
@@ -133,6 +135,35 @@ app.post("/status", async (req, res) => {
     return res.sendStatus(404);
   }
 });
+
+//remove user
+setInterval(async () => {
+  try {
+    const users = await db.collection("participants").find().toArray();
+
+    const usersTimeOut = users.filter((element) => {
+      return element.lastStatus + 10000 < Date.now();
+    });
+    if (!usersTimeOut) {
+      return;
+    }
+    usersTimeOut.forEach(async (element) => {
+      const id = element._id;
+      const name = element.name;
+      await db.collection("participants").deleteOne({ _id: ObjectId(id) });
+      await db.collection("messages").insertOne({
+        from: name,
+        to: "Todos",
+        text: "sai da sala...",
+        type: "status",
+        time: now.format("HH:MM:ss"),
+      });
+    });
+    console.log(users);
+  } catch (error) {
+    console.log(error);
+  }
+}, 15000);
 
 app.listen(5000, () => {
   console.log("Conectado na porta 5000");
